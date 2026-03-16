@@ -17,6 +17,7 @@ Real-time Asterisk PBX monitoring via native **AMI** (TCP) and **ARI** (HTTP) in
 
 ### PJSIP Endpoint Status
 ![Endpoints](docs/screenshots/endpoints.png)
+![Endpoints](docs/screenshots/endpoints2.png)
 *All registered endpoints with online/offline state, contact URI, qualify RTT, and state change history.*
 
 ### Quality Charts
