@@ -2,35 +2,107 @@
 
 [![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
+[![Asterisk](https://img.shields.io/badge/Asterisk-PBX-F57C00?logo=asterisk&logoColor=white)](https://www.asterisk.org)
 
-Real-time Asterisk PBX monitoring collector. Connects to Asterisk's native AMI (TCP) and ARI (HTTP) interfaces to capture call events, RTP quality metrics, and PJSIP endpoint status with minimal latency.
+Real-time Asterisk PBX monitoring via native **AMI** (TCP) and **ARI** (HTTP) interfaces. Track active calls with RTP quality metrics, monitor PJSIP endpoint status, detect security threats, and visualize historical trends — all from a single lightweight Go binary.
+
+> **No custom Asterisk modules required.** Works with any standard Asterisk installation with AMI and ARI enabled.
+
+## Screenshots
+
+### Real-time Call Monitoring
+![Call Monitor](docs/screenshots/monitor.png)
+*Active calls with real-time MOS, jitter, packet loss and RTT metrics. Grouped by call pair with codec and trunk detection.*
+
+### PJSIP Endpoint Status
+![Endpoints](docs/screenshots/endpoints.png)
+*All registered endpoints with online/offline state, contact URI, qualify RTT, and state change history.*
+
+### Quality Charts
+![Charts](docs/screenshots/charts.png)
+*Calls per hour, average MOS per hour, and problem calls (MOS < 3.0). Selectable time periods with daily comparison view.*
+
+### Call History
+![History](docs/screenshots/history.png)
+*Searchable call history with quality metrics. Filter by date range and minimum MOS threshold.*
+
+### Security Events
+![Security](docs/screenshots/security.png)
+*Failed authentication attempts, ACL violations, and brute force detection. Top offenders ranking with IP tracking.*
+
+### System Telemetry
+![Header](docs/screenshots/header.png)
+*Real-time system health: AMI/ARI latency, events per second, queue depth, SSE clients, database size.*
 
 ## Features
 
 - **Real-time call tracking** via AMI events (Newchannel, Hangup, DialBegin, BridgeEnter/Leave)
-- **RTP quality metrics** — MOS, jitter, packet loss, RTT per channel (via RTCP events + ARI polling)
+- **RTP quality metrics** — MOS (ITU-T G.107), jitter, packet loss, RTT per channel
 - **PJSIP endpoint monitoring** — online/offline state, contact registration, qualify RTT
 - **Security event detection** — failed auth attempts, ACL violations, unexpected addresses
 - **SSE streaming** — push updates to frontend clients in real-time
 - **Historical data** — SQLite persistence for call quality, endpoint changes, and security events
 - **REST API** — full JSON API for integration with dashboards and alerting systems
+- **Zero dependencies** — single Go binary + embedded web dashboard, no external database required
+- **Docker ready** — multi-stage build, healthcheck, ~15MB image
 
 ## Quick Start
 
 ```bash
-# Clone and configure
+# Clone the repository
+git clone https://github.com/9LEVEL/9level-monitor.git
+cd 9level-monitor
+
+# Configure
 cp .env.example .env
 # Edit .env with your Asterisk AMI/ARI credentials
 
-# Build and run
+# Option 1: Run with Docker (recommended)
+docker compose up -d
+
+# Option 2: Build from source
 go build -o collector ./cmd/collector
 ./collector
-
-# Or with Docker
-docker compose up -d
 ```
 
-The collector listens on port 3001 by default.
+The monitor listens on **port 3001** by default. Open `http://your-server:3001` in your browser.
+
+### Asterisk Prerequisites
+
+Enable AMI and ARI in your Asterisk configuration:
+
+**`/etc/asterisk/manager.conf`**
+```ini
+[general]
+enabled = yes
+port = 5038
+bindaddr = 0.0.0.0
+
+[9level]
+secret = your_secret
+read = system,call,agent,security
+write = system,command
+```
+
+**`/etc/asterisk/ari.conf`**
+```ini
+[general]
+enabled = yes
+
+[9level]
+type = user
+password = your_password
+read_only = no
+```
+
+**`/etc/asterisk/http.conf`**
+```ini
+[general]
+enabled = yes
+bindaddr = 0.0.0.0
+bindport = 8088
+```
 
 ## Architecture
 
@@ -44,18 +116,18 @@ The collector listens on port 3001 by default.
 │  │ (event loop)│  │ Handlers │  │Broker │  │  (in-memory)     │  │
 │  └─────┬──────┘  └──────────┘  └───────┘  │  - Channels      │  │
 │        │                                   │  - Endpoints     │  │
-│        │                                   │  - Bridges       │  │
-│        │                                   └──────────────────┘  │
+│        │            ┌──────┐               │  - Bridges       │  │
+│        │            │SQLite│               │  - Security      │  │
+│        │            └──────┘               └──────────────────┘  │
 └────────┼─────────────────────────────────────────────────────────┘
          │
          │  ┌──── AMI (TCP 5038) ──── Real-time events
          │  │     Newchannel, Hangup, DialBegin, BridgeEnter,
          │  │     BridgeLeave, RTCPSent, RTCPReceived,
-         │  │     ContactStatus, PeerStatus, EndpointList
+         │  │     ContactStatus, PeerStatus, Security*
          ├──┤
          │  └──── ARI (HTTP 8088) ──── Periodic polling
-         │        GET /channels (bootstrap)
-         │        GET /channels/{id}/rtp_statistics
+         │        GET /channels (bootstrap + RTP stats)
          │        GET /asterisk/info (health check)
          ▼
 ┌──────────────────────────────────────────────────────────────────┐
@@ -66,7 +138,7 @@ The collector listens on port 3001 by default.
 
 ## Configuration
 
-All settings are configured via environment variables (or `.env` file). See [.env.example](.env.example) for a template.
+All settings via environment variables (or `.env` file). See [.env.example](.env.example) for a template.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -87,6 +159,8 @@ All settings are configured via environment variables (or `.env` file). See [.en
 
 Base URL: `http://localhost:3001`
 
+### Real-time endpoints
+
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/v1/monitor` | Full view: calls + endpoints + summary |
@@ -97,12 +171,17 @@ Base URL: `http://localhost:3001`
 | `GET /api/v1/health` | Health status: AMI/ARI connection, counts, SSE clients |
 | `GET /api/v1/events` | SSE real-time event stream |
 | `GET /api/v1/security` | Security events (paginated) |
-| `GET /api/v1/history/calls` | Historical call quality (SQLite) |
-| `GET /api/v1/history/calls/stats` | Aggregated call statistics |
-| `GET /api/v1/history/calls/hourly` | Hourly call distribution |
-| `GET /api/v1/history/calls/daily` | Daily call totals and avg MOS |
-| `GET /api/v1/history/security` | Historical security events |
-| `GET /api/v1/history/endpoints` | Endpoint state change history |
+
+### History endpoints (SQLite)
+
+| Endpoint | Parameters | Description |
+|----------|-----------|-------------|
+| `GET /api/v1/history/calls` | `from`, `to`, `min_mos`, `page`, `per_page` | Paginated call quality history |
+| `GET /api/v1/history/calls/stats` | `from`, `to` | Aggregated stats (total, avg MOS, bad calls) |
+| `GET /api/v1/history/calls/hourly` | `from`, `to` or `date` | Per-hour breakdown |
+| `GET /api/v1/history/calls/daily` | `from`, `to` | Per-day totals and avg MOS |
+| `GET /api/v1/history/security` | `from`, `to`, `type`, `page`, `per_page` | Security event history |
+| `GET /api/v1/history/endpoints` | `from`, `to`, `endpoint`, `page`, `per_page` | Endpoint state changes |
 
 ### SSE Events
 
@@ -118,6 +197,25 @@ Connect to `/api/v1/events` for real-time updates:
 | `summary:update` | Aggregated summary refresh |
 | `health:update` | System health metrics |
 | `security:event` | New security event detected |
+
+## Project Structure
+
+```
+9level-monitor/
+├── cmd/collector/main.go          # Entrypoint, wiring, HTTP server
+├── internal/
+│   ├── ami/                       # AMI TCP client with auto-reconnect
+│   ├── ari/                       # ARI HTTP client (channels, RTP stats)
+│   ├── api/                       # REST handlers + SSE broker
+│   ├── collector/                 # Event loop, bootstrap, RTP polling
+│   ├── config/                    # Environment-based configuration
+│   ├── db/                        # SQLite persistence layer
+│   └── store/                     # In-memory state (channels, endpoints)
+├── frontend/index.html            # Embedded Vue 3 dashboard
+├── Dockerfile                     # Multi-stage build (~15MB)
+├── docker-compose.yml             # Production-ready deployment
+└── .env.example                   # Configuration template
+```
 
 ## Contributing
 
