@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>9Level Monitor</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; font-size: 14px; }
+
+    /* Navbar */
+    .navbar { background: #1e293b; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #334155; }
+    .navbar h1 { font-size: 18px; font-weight: 600; color: #38bdf8; }
+    .navbar .meta { display: flex; gap: 16px; font-size: 12px; color: #94a3b8; }
+    .navbar .meta .badge { background: #334155; padding: 2px 8px; border-radius: 4px; }
+    .navbar .meta .db-size { color: #a78bfa; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0; background: #1e293b; padding: 0 24px; border-bottom: 1px solid #334155; }
+    .tab { padding: 10px 20px; cursor: pointer; color: #94a3b8; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .tab:hover { color: #e2e8f0; }
+    .tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+
+    /* Content */
+    .content { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+
+    /* Summary cards */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .card { background: #1e293b; border-radius: 8px; padding: 16px; border: 1px solid #334155; }
+    .card .label { font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+    .card .value { font-size: 24px; font-weight: 700; }
+    .card .value.good { color: #4ade80; }
+    .card .value.warn { color: #fbbf24; }
+    .card .value.bad { color: #f87171; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; }
+    th { background: #334155; padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 600; }
+    td { padding: 8px 12px; border-top: 1px solid #1e293b; }
+    tr:hover td { background: #334155; }
+    .mos-good { color: #4ade80; }
+    .mos-warn { color: #fbbf24; }
+    .mos-bad { color: #f87171; font-weight: 600; }
+
+    /* Filters */
+    .filters { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end; }
+    .filters input, .filters select { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 13px; }
+    .filters input:focus, .filters select:focus { outline: none; border-color: #38bdf8; }
+    .filters label { font-size: 12px; color: #94a3b8; }
+
+    /* Charts */
+    .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .chart-box { background: #1e293b; border-radius: 8px; padding: 16px; border: 1px solid #334155; }
+    .chart-box h3 { font-size: 13px; color: #94a3b8; margin-bottom: 12px; }
+    .chart-box.full-width { grid-column: 1 / -1; }
+
+    /* Pagination */
+    .pagination { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+    .pagination button { background: #334155; border: none; color: #e2e8f0; padding: 4px 12px; border-radius: 4px; cursor: pointer; }
+    .pagination button:hover { background: #475569; }
+    .pagination button.active { background: #38bdf8; color: #0f172a; }
+    .pagination button:disabled { opacity: 0.5; cursor: default; }
+
+    /* State badge */
+    .state-online { color: #4ade80; }
+    .state-offline { color: #f87171; }
+
+    /* Endpoint history modal */
+    .ep-history { margin-top: 8px; }
+    .ep-history-btn { background: none; border: 1px solid #475569; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 3px; cursor: pointer; }
+    .ep-history-btn:hover { border-color: #38bdf8; color: #38bdf8; }
+    .timeline { margin-top: 8px; }
+    .timeline-item { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 4px 0; border-left: 2px solid #475569; padding-left: 12px; }
+    .timeline-item .time { color: #64748b; min-width: 140px; }
+
+    .loading { text-align: center; color: #64748b; padding: 40px; }
+    .section-title { font-size: 14px; font-weight: 600; color: #94a3b8; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <!-- Navbar -->
+  <div class="navbar">
+    <h1>9Level Monitor</h1>
+    <div class="meta">
+      <span class="badge">SSE: {{ sseStatus }}</span>
+      <span class="badge db-size" v-if="dbSize">DB: {{ dbSize }}</span>
+      <span class="badge">Uptime: {{ uptimeStr }}</span>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab" :class="{active: tab==='monitor'}" @click="tab='monitor'">Monitor</div>
+    <div class="tab" :class="{active: tab==='endpoints'}" @click="tab='endpoints'">Endpoints</div>
+    <div class="tab" :class="{active: tab==='security'}" @click="tab='security'">Seguran&ccedil;a</div>
+    <div class="tab" :class="{active: tab==='charts'}" @click="tab='charts'; loadCharts()">Gr&aacute;ficos</div>
+    <div class="tab" :class="{active: tab==='history'}" @click="tab='history'; loadHistoryCalls()">Hist&oacute;rico</div>
+  </div>
+
+  <div class="content">
+
+    <!-- ==================== MONITOR TAB ==================== -->
+    <template v-if="tab==='monitor'">
+      <!-- Summary cards -->
+      <div class="cards">
+        <div class="card">
+          <div class="label">Chamadas Ativas</div>
+          <div class="value">{{ summary.active_calls || 0 }}</div>
+        </div>
+        <div class="card">
+          <div class="label">Pico de Chamadas</div>
+          <div class="value">{{ summary.peak_calls || 0 }}</div>
+        </div>
+        <div class="card">
+          <div class="label">Endpoints Online</div>
+          <div class="value good">{{ summary.registered_endpoints || 0 }}<span style="color:#64748b;font-size:14px"> / {{ summary.total_endpoints || 0 }}</span></div>
+        </div>
+        <div class="card">
+          <div class="label">MOS M&eacute;dio (Rx / Tx)</div>
+          <div class="value" :class="mosClass((summary.avg_rxmes||0))">{{ (summary.avg_rxmes||0).toFixed(2) }} / {{ (summary.avg_txmes||0).toFixed(2) }}</div>
+        </div>
+      </div>
+
+      <!-- Call filters -->
+      <div class="filters">
+        <div>
+          <label>Busca</label><br>
+          <input v-model="callFilter.search" placeholder="Canal, caller, callee..." style="width:200px">
+        </div>
+        <div>
+          <label>Tronco</label><br>
+          <select v-model="callFilter.trunk">
+            <option value="">Todos</option>
+            <option v-for="t in detectedTrunks" :value="t">{{ t }}</option>
+          </select>
+        </div>
+        <div>
+          <label>Dire&ccedil;&atilde;o</label><br>
+          <select v-model="callFilter.direction">
+            <option value="">Todas</option>
+            <option value="inbound">Entrantes</option>
+            <option value="outbound">Sa&iacute;das</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Calls table -->
+      <table v-if="filteredCalls.length > 0">
+        <thead>
+          <tr>
+            <th>Canal</th>
+            <th>Caller</th>
+            <th>Callee</th>
+            <th>Dura&ccedil;&atilde;o</th>
+            <th>MOS Rx</th>
+            <th>MOS Tx</th>
+            <th>Jitter Rx</th>
+            <th>RTT</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="call in filteredCalls" :key="call.uniqueid">
+            <td>{{ call.channel }}</td>
+            <td>{{ call.caller }}</td>
+            <td>{{ call.callee }}</td>
+            <td>{{ formatDuration(call.duration_seconds) }}</td>
+            <td :class="mosClass(call.rtp?.rxmes)">{{ call.rtp ? call.rtp.rxmes.toFixed(2) : '-' }}</td>
+            <td :class="mosClass(call.rtp?.txmes)">{{ call.rtp ? call.rtp.txmes.toFixed(2) : '-' }}</td>
+            <td>{{ call.rtp ? call.rtp.rxjitter.toFixed(1) + ' ms' : '-' }}</td>
+            <td>{{ call.rtp ? call.rtp.rtt.toFixed(1) + ' ms' : '-' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-else class="loading">Nenhuma chamada ativa</div>
+    </template>
+
+    <!-- ==================== ENDPOINTS TAB ==================== -->
+    <template v-if="tab==='endpoints'">
+      <table>
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th>Estado</th>
+            <th>Contatos</th>
+            <th>RTT</th>
+            <th>Hist&oacute;rico</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="ep in endpoints" :key="ep.name">
+            <tr>
+              <td>{{ ep.name }}</td>
+              <td :class="ep.state==='ONLINE'?'state-online':'state-offline'">{{ ep.state }}</td>
+              <td>{{ (ep.contacts||[]).map(c => c.status).join(', ') || '-' }}</td>
+              <td>{{ ep.contacts?.length ? (ep.contacts[0].rtt_us/1000).toFixed(1) + ' ms' : '-' }}</td>
+              <td>
+                <button class="ep-history-btn" @click="toggleEpHistory(ep.name)">
+                  {{ epHistoryOpen === ep.name ? 'Fechar' : 'Hist\u00f3rico' }}
+                </button>
+              </td>
+            </tr>
+            <tr v-if="epHistoryOpen === ep.name">
+              <td colspan="5">
+                <div class="ep-history">
+                  <div v-if="epHistoryData.length === 0" style="color:#64748b;font-size:12px">Sem mudan&ccedil;as registradas</div>
+                  <div class="timeline" v-else>
+                    <div class="timeline-item" v-for="h in epHistoryData" :key="h.id">
+                      <span class="time">{{ formatDate(h.timestamp) }}</span>
+                      <span :class="h.old_state==='ONLINE'?'state-online':'state-offline'">{{ h.old_state }}</span>
+                      <span style="color:#64748b">&rarr;</span>
+                      <span :class="h.new_state==='ONLINE'?'state-online':'state-offline'">{{ h.new_state }}</span>
+                    </div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+
+    <!-- ==================== SECURITY TAB ==================== -->
+    <template v-if="tab==='security'">
+      <div class="cards" style="margin-bottom:16px">
+        <div class="card">
+          <div class="label">Total de Eventos</div>
+          <div class="value bad">{{ secSummary.total_events || 0 }}</div>
+        </div>
+        <div class="card" v-for="(count, type) in (secSummary.events_by_type||{})" :key="type">
+          <div class="label">{{ type }}</div>
+          <div class="value">{{ count }}</div>
+        </div>
+      </div>
+      <table v-if="secEvents.length > 0">
+        <thead>
+          <tr><th>Hor&aacute;rio</th><th>Tipo</th><th>IP</th><th>Conta</th><th>Servi&ccedil;o</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="ev in secEvents" :key="ev.id">
+            <td>{{ formatDate(ev.timestamp) }}</td>
+            <td>{{ ev.event_type }}</td>
+            <td>{{ ev.remote_address }}</td>
+            <td>{{ ev.account_id }}</td>
+            <td>{{ ev.service }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
+
+    <!-- ==================== CHARTS TAB ==================== -->
+    <template v-if="tab==='charts'">
+      <div class="filters">
+        <div>
+          <label>Per&iacute;odo</label><br>
+          <select v-model="chartPeriod" @change="onChartPeriodChange()">
+            <option value="today">Hoje</option>
+            <option value="yesterday">Ontem</option>
+            <option value="7d">&Uacute;ltimos 7 dias</option>
+            <option value="30d">&Uacute;ltimos 30 dias</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </div>
+        <template v-if="chartPeriod==='custom'">
+          <div>
+            <label>De</label><br>
+            <input type="date" v-model="chartFrom" @change="loadCharts()">
+          </div>
+          <div>
+            <label>At&eacute;</label><br>
+            <input type="date" v-model="chartTo" @change="loadCharts()">
+          </div>
+        </template>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-box">
+          <h3>Chamadas por Hora</h3>
+          <canvas id="chartCallsPerHour" height="200"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>MOS M&eacute;dio por Hora</h3>
+          <canvas id="chartMosPerHour" height="200"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>Chamadas com MOS &lt; 3.0 por Hora</h3>
+          <canvas id="chartBadCalls" height="200"></canvas>
+        </div>
+        <div class="chart-box" v-if="isMultiDay">
+          <h3>Chamadas por Dia</h3>
+          <canvas id="chartCallsPerDay" height="200"></canvas>
+        </div>
+      </div>
+    </template>
+
+    <!-- ==================== HISTORY TAB ==================== -->
+    <template v-if="tab==='history'">
+      <div class="filters">
+        <div>
+          <label>Per&iacute;odo</label><br>
+          <select v-model="historyPeriod" @change="onHistoryPeriodChange()">
+            <option value="today">Hoje</option>
+            <option value="yesterday">Ontem</option>
+            <option value="7d">&Uacute;ltimos 7 dias</option>
+            <option value="30d">&Uacute;ltimos 30 dias</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </div>
+        <template v-if="historyPeriod==='custom'">
+          <div>
+            <label>De</label><br>
+            <input type="date" v-model="historyFrom" @change="loadHistoryCalls()">
+          </div>
+          <div>
+            <label>At&eacute;</label><br>
+            <input type="date" v-model="historyTo" @change="loadHistoryCalls()">
+          </div>
+        </template>
+        <div>
+          <label>MOS M&iacute;nimo</label><br>
+          <input type="number" v-model="historyMinMOS" step="0.1" min="0" max="5" style="width:80px" @change="loadHistoryCalls()">
+        </div>
+      </div>
+
+      <div class="cards" v-if="historyStats">
+        <div class="card">
+          <div class="label">Total de Chamadas</div>
+          <div class="value">{{ historyStats.total_calls }}</div>
+        </div>
+        <div class="card">
+          <div class="label">MOS M&eacute;dio</div>
+          <div class="value" :class="mosClass(historyStats.avg_mos)">{{ historyStats.avg_mos.toFixed(2) }}</div>
+        </div>
+        <div class="card">
+          <div class="label">Chamadas MOS &lt; 3.0</div>
+          <div class="value bad">{{ historyStats.calls_below_3 }}</div>
+        </div>
+      </div>
+
+      <table v-if="historyCalls.length > 0">
+        <thead>
+          <tr>
+            <th>T&eacute;rmino</th>
+            <th>Canal</th>
+            <th>Caller</th>
+            <th>Callee</th>
+            <th>Dura&ccedil;&atilde;o</th>
+            <th>MOS Rx</th>
+            <th>MOS Tx</th>
+            <th>Jitter Rx</th>
+            <th>RTT</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="c in historyCalls" :key="c.id">
+            <td>{{ formatDate(c.ended_at) }}</td>
+            <td>{{ c.channel }}</td>
+            <td>{{ c.caller }}</td>
+            <td>{{ c.callee }}</td>
+            <td>{{ formatDuration(c.duration_seconds) }}</td>
+            <td :class="mosClass(c.rxmes)">{{ c.rxmes.toFixed(2) }}</td>
+            <td :class="mosClass(c.txmes)">{{ c.txmes.toFixed(2) }}</td>
+            <td>{{ c.rxjitter.toFixed(1) }} ms</td>
+            <td>{{ c.rtt.toFixed(1) }} ms</td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-else class="loading">Nenhuma chamada no per&iacute;odo</div>
+
+      <div class="pagination" v-if="historyPages > 1">
+        <button :disabled="historyPage<=1" @click="historyPage--;loadHistoryCalls()">Anterior</button>
+        <span style="color:#64748b;padding:4px 8px">{{ historyPage }} / {{ historyPages }}</span>
+        <button :disabled="historyPage>=historyPages" @click="historyPage++;loadHistoryCalls()">Pr&oacute;xima</button>
+      </div>
+    </template>
+
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick } = Vue;
+
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function yesterdayStr() { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); }
+function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
+
+createApp({
+  setup() {
+    const tab = ref('monitor');
+    const calls = ref([]);
+    const endpoints = ref([]);
+    const summary = ref({});
+    const secEvents = ref([]);
+    const secSummary = ref({});
+    const sseStatus = ref('conectando...');
+    const dbSize = ref('');
+
+    // Filters
+    const callFilter = ref({ search: '', trunk: '', direction: '' });
+    const trunkPatterns = ['KMG', 'Tronco', 'Flow', 'DAHDI', 'SIP/', 'IAX2/'];
+
+    // Charts
+    const chartPeriod = ref('today');
+    const chartFrom = ref(todayStr());
+    const chartTo = ref(todayStr());
+    let chartInstances = {};
+
+    const isMultiDay = computed(() => {
+      return chartFrom.value !== chartTo.value;
+    });
+
+    // History
+    const historyPeriod = ref('today');
+    const historyFrom = ref(todayStr());
+    const historyTo = ref(todayStr());
+    const historyMinMOS = ref(0);
+    const historyPage = ref(1);
+    const historyPages = ref(1);
+    const historyCalls = ref([]);
+    const historyStats = ref(null);
+
+    // Endpoint history
+    const epHistoryOpen = ref('');
+    const epHistoryData = ref([]);
+
+    function isTrunk(channelName) {
+      if (!channelName) return false;
+      const upper = channelName.toUpperCase();
+      return trunkPatterns.some(p => upper.includes(p.toUpperCase()));
+    }
+
+    const detectedTrunks = computed(() => {
+      const trunks = new Set();
+      calls.value.forEach(c => {
+        if (isTrunk(c.channel)) {
+          const base = c.channel.split('-')[0];
+          trunks.add(base);
+        }
+        if (isTrunk(c.linked_channel)) {
+          const base = c.linked_channel.split('-')[0];
+          trunks.add(base);
+        }
+      });
+      return [...trunks].sort();
+    });
+
+    const filteredCalls = computed(() => {
+      let list = calls.value;
+
+      if (callFilter.value.search) {
+        const s = callFilter.value.search.toLowerCase();
+        list = list.filter(c =>
+          (c.channel || '').toLowerCase().includes(s) ||
+          (c.caller || '').toLowerCase().includes(s) ||
+          (c.callee || '').toLowerCase().includes(s)
+        );
+      }
+
+      if (callFilter.value.trunk) {
+        const t = callFilter.value.trunk;
+        list = list.filter(c =>
+          (c.channel || '').startsWith(t) ||
+          (c.linked_channel || '').startsWith(t)
+        );
+      }
+
+      if (callFilter.value.direction === 'inbound') {
+        list = list.filter(c => {
+          if (isTrunk(c.channel) && !isTrunk(c.linked_channel)) return true;
+          return false;
+        });
+      } else if (callFilter.value.direction === 'outbound') {
+        list = list.filter(c => {
+          if (!isTrunk(c.channel) && isTrunk(c.linked_channel)) return true;
+          return false;
+        });
+      }
+
+      return list;
+    });
+
+    // SSE
+    let sse = null;
+    function connectSSE() {
+      sse = new EventSource(API + '/api/v1/events');
+      sse.onopen = () => { sseStatus.value = 'conectado'; };
+      sse.onerror = () => { sseStatus.value = 'reconectando...'; };
+      sse.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'summary:update') summary.value = msg.data;
+          if (msg.type === 'security:summary') secSummary.value = msg.data;
+          if (msg.type === 'security:event') secEvents.value.unshift(msg.data);
+        } catch(e) {}
+      };
+    }
+
+    // Polling
+    let pollTimer = null;
+    async function poll() {
+      try {
+        const [callsRes, epRes, secRes] = await Promise.all([
+          fetch(API + '/api/v1/calls').then(r => r.json()),
+          fetch(API + '/api/v1/endpoints').then(r => r.json()),
+          fetch(API + '/api/v1/security?per_page=100').then(r => r.json()),
+        ]);
+        calls.value = callsRes || [];
+        endpoints.value = epRes || [];
+        secEvents.value = secRes.events || [];
+      } catch(e) {}
+    }
+
+    async function pollDBSize() {
+      try {
+        const res = await fetch(API + '/api/v1/db/size').then(r => r.json());
+        dbSize.value = res.size_human || '';
+      } catch(e) {}
+    }
+
+    // --- Period helpers ---
+    function periodToRange(period, fromRef, toRef) {
+      switch (period) {
+        case 'today':
+          fromRef.value = todayStr();
+          toRef.value = todayStr();
+          break;
+        case 'yesterday':
+          fromRef.value = yesterdayStr();
+          toRef.value = yesterdayStr();
+          break;
+        case '7d':
+          fromRef.value = daysAgoStr(6);
+          toRef.value = todayStr();
+          break;
+        case '30d':
+          fromRef.value = daysAgoStr(29);
+          toRef.value = todayStr();
+          break;
+        // custom: keep current values
+      }
+    }
+
+    function onChartPeriodChange() {
+      periodToRange(chartPeriod.value, chartFrom, chartTo);
+      loadCharts();
+    }
+
+    function onHistoryPeriodChange() {
+      periodToRange(historyPeriod.value, historyFrom, historyTo);
+      historyPage.value = 1;
+      loadHistoryCalls();
+    }
+
+    // --- Charts ---
+    async function loadCharts() {
+      await nextTick();
+      try {
+        const params = 'from=' + chartFrom.value + '&to=' + chartTo.value;
+        const [hourlyData, dailyData] = await Promise.all([
+          fetch(API + '/api/v1/history/calls/hourly?' + params).then(r => r.json()),
+          isMultiDay.value
+            ? fetch(API + '/api/v1/history/calls/daily?' + params).then(r => r.json())
+            : Promise.resolve(null),
+        ]);
+
+        const labels = hourlyData.map(d => d.hour + 'h');
+        const totalCalls = hourlyData.map(d => d.total_calls);
+        const avgMos = hourlyData.map(d => d.avg_mos);
+        const badCalls = hourlyData.map(d => d.bad_calls);
+
+        // Destroy existing
+        Object.values(chartInstances).forEach(c => c.destroy());
+        chartInstances = {};
+
+        const el1 = document.getElementById('chartCallsPerHour');
+        const el2 = document.getElementById('chartMosPerHour');
+        const el3 = document.getElementById('chartBadCalls');
+        if (!el1 || !el2 || !el3) return;
+
+        const periodLabel = isMultiDay.value ? ' (m\u00e9dia no per\u00edodo)' : '';
+
+        chartInstances.calls = new Chart(el1.getContext('2d'), {
+          type: 'bar',
+          data: { labels, datasets: [{ label: 'Chamadas' + periodLabel, data: totalCalls, backgroundColor: '#38bdf8' }] },
+          options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8' } } }, scales: { y: { beginAtZero: true, ticks: { color: '#94a3b8' } }, x: { ticks: { color: '#94a3b8' } } } }
+        });
+
+        chartInstances.mos = new Chart(el2.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              { label: 'MOS M\u00e9dio', data: avgMos, borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.1)', fill: true, tension: 0.3 },
+              { label: 'Limite', data: Array(24).fill(3.0), borderColor: '#f87171', borderDash: [5, 5], pointRadius: 0 }
+            ]
+          },
+          options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8' } } }, scales: { y: { min: 0, max: 5, ticks: { color: '#94a3b8' } }, x: { ticks: { color: '#94a3b8' } } } }
+        });
+
+        chartInstances.bad = new Chart(el3.getContext('2d'), {
+          type: 'bar',
+          data: { labels, datasets: [{ label: 'MOS < 3.0', data: badCalls, backgroundColor: '#f87171' }] },
+          options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8' } } }, scales: { y: { beginAtZero: true, ticks: { color: '#94a3b8' } }, x: { ticks: { color: '#94a3b8' } } } }
+        });
+
+        // Daily chart (multi-day only)
+        if (dailyData && dailyData.length > 0) {
+          await nextTick();
+          const el4 = document.getElementById('chartCallsPerDay');
+          if (el4) {
+            const dayLabels = dailyData.map(d => {
+              const parts = d.date.split('-');
+              return parts[2] + '/' + parts[1];
+            });
+            const dayCalls = dailyData.map(d => d.total_calls);
+            const dayMos = dailyData.map(d => d.avg_mos);
+
+            chartInstances.daily = new Chart(el4.getContext('2d'), {
+              type: 'bar',
+              data: {
+                labels: dayLabels,
+                datasets: [
+                  { label: 'Chamadas', data: dayCalls, backgroundColor: '#38bdf8', yAxisID: 'y' },
+                  { label: 'MOS M\u00e9dio', data: dayMos, type: 'line', borderColor: '#4ade80', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3, pointRadius: 3 }
+                ]
+              },
+              options: {
+                responsive: true,
+                plugins: { legend: { labels: { color: '#94a3b8' } } },
+                scales: {
+                  y: { beginAtZero: true, position: 'left', ticks: { color: '#94a3b8' }, title: { display: true, text: 'Chamadas', color: '#94a3b8' } },
+                  y1: { min: 0, max: 5, position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#4ade80' }, title: { display: true, text: 'MOS', color: '#4ade80' } },
+                  x: { ticks: { color: '#94a3b8' } }
+                }
+              }
+            });
+          }
+        }
+      } catch(e) { console.error('chart error:', e); }
+    }
+
+    // --- History ---
+    async function loadHistoryCalls() {
+      try {
+        const params = new URLSearchParams({
+          from: historyFrom.value,
+          to: historyTo.value,
+          page: historyPage.value,
+          per_page: 50,
+        });
+        if (historyMinMOS.value > 0) params.set('min_mos', historyMinMOS.value);
+
+        const [callsRes, statsRes] = await Promise.all([
+          fetch(API + '/api/v1/history/calls?' + params).then(r => r.json()),
+          fetch(API + '/api/v1/history/calls/stats?from=' + historyFrom.value + '&to=' + historyTo.value).then(r => r.json()),
+        ]);
+        historyCalls.value = callsRes.items || [];
+        historyPages.value = callsRes.pages || 1;
+        historyStats.value = statsRes;
+      } catch(e) { console.error('history error:', e); }
+    }
+
+    // Endpoint history
+    async function toggleEpHistory(name) {
+      if (epHistoryOpen.value === name) {
+        epHistoryOpen.value = '';
+        epHistoryData.value = [];
+        return;
+      }
+      epHistoryOpen.value = name;
+      try {
+        const res = await fetch(API + '/api/v1/history/endpoints?endpoint=' + name + '&per_page=50').then(r => r.json());
+        epHistoryData.value = res.items || [];
+      } catch(e) { epHistoryData.value = []; }
+    }
+
+    // Helpers
+    function mosClass(v) {
+      if (!v || v <= 0) return '';
+      if (v >= 3.5) return 'mos-good';
+      if (v >= 3.0) return 'mos-warn';
+      return 'mos-bad';
+    }
+
+    function formatDuration(s) {
+      if (!s) return '0s';
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return m > 0 ? m + 'm ' + sec + 's' : sec + 's';
+    }
+
+    function formatDate(d) {
+      if (!d) return '-';
+      try { return new Date(d).toLocaleString('pt-BR'); } catch(e) { return d; }
+    }
+
+    const uptimeStr = computed(() => {
+      const s = summary.value.uptime_seconds || 0;
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return h + 'h ' + m + 'm';
+    });
+
+    onMounted(() => {
+      connectSSE();
+      poll();
+      pollDBSize();
+      pollTimer = setInterval(poll, 5000);
+      setInterval(pollDBSize, 60000);
+      fetch(API + '/api/v1/summary').then(r => r.json()).then(d => summary.value = d).catch(() => {});
+      fetch(API + '/api/v1/security/summary').then(r => r.json()).then(d => secSummary.value = d).catch(() => {});
+    });
+
+    onUnmounted(() => {
+      if (sse) sse.close();
+      if (pollTimer) clearInterval(pollTimer);
+    });
+
+    return {
+      tab, calls, endpoints, summary, secEvents, secSummary, sseStatus, dbSize,
+      callFilter, detectedTrunks, filteredCalls,
+      chartPeriod, chartFrom, chartTo, isMultiDay, loadCharts, onChartPeriodChange,
+      historyPeriod, historyFrom, historyTo, historyMinMOS, historyPage, historyPages, historyCalls, historyStats, loadHistoryCalls, onHistoryPeriodChange,
+      epHistoryOpen, epHistoryData, toggleEpHistory,
+      mosClass, formatDuration, formatDate, uptimeStr,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

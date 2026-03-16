@@ -1,0 +1,16 @@
+services:
+  collector:
+    build: .
+    container_name: 9level-collector
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    environment:
+      - TZ=America/Sao_Paulo
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
