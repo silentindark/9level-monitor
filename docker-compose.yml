@@ -17,7 +17,10 @@ services:
       - internal
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_BASE: ${VITE_BASE:-/}
     container_name: 9level-frontend
     restart: unless-stopped
     ports:

@@ -90,6 +90,8 @@
 import { ref, onMounted } from 'vue'
 import { mesClass, mesBarClass, mesBarWidth, formatDuration, formatDateTime } from '../composables/useStore'
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
+
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 function yesterdayStr() { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10) }
 function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
@@ -141,8 +143,8 @@ async function loadHistoryCalls() {
     if (historyMinMOS.value > 0) params.set('min_mos', historyMinMOS.value)
 
     const [callsRes, statsRes] = await Promise.all([
-      fetch('/api/v1/history/calls?' + params).then(r => r.json()),
-      fetch('/api/v1/history/calls/stats?from=' + historyFrom.value + '&to=' + historyTo.value).then(r => r.json()),
+      fetch(BASE + '/api/v1/history/calls?' + params).then(r => r.json()),
+      fetch(BASE + '/api/v1/history/calls/stats?from=' + historyFrom.value + '&to=' + historyTo.value).then(r => r.json()),
     ])
     historyCalls.value = callsRes.items || []
     historyPages.value = callsRes.pages || 1

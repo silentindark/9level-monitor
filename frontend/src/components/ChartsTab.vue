@@ -47,6 +47,8 @@ import { Chart, registerables } from 'chart.js'
 
 Chart.register(...registerables)
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
+
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 function yesterdayStr() { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10) }
 function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
@@ -95,9 +97,9 @@ async function loadCharts() {
     const params = 'from=' + chartFrom.value + '&to=' + chartTo.value
 
     const [hourlyData, dailyData] = await Promise.all([
-      fetch('/api/v1/history/calls/hourly?' + params).then(r => r.ok ? r.json() : []),
+      fetch(BASE + '/api/v1/history/calls/hourly?' + params).then(r => r.ok ? r.json() : []),
       isMultiDay.value
-        ? fetch('/api/v1/history/calls/daily?' + params).then(r => r.ok ? r.json() : [])
+        ? fetch(BASE + '/api/v1/history/calls/daily?' + params).then(r => r.ok ? r.json() : [])
         : Promise.resolve(null),
     ])
 

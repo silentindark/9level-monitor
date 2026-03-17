@@ -1,6 +1,7 @@
 import { ref, computed, reactive } from 'vue'
 
-const API = '/api'
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
+const API = BASE + '/api'
 
 // Shared reactive state
 export const connected = ref(false)

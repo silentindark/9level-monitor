@@ -59,15 +59,20 @@ cd 9level-monitor
 cp .env.example .env
 # Edit .env with your Asterisk AMI/ARI credentials
 
-# Option 1: Run with Docker (recommended)
-docker compose up -d
+# Run with Docker (recommended)
+docker compose up -d --build
+```
 
-# Option 2: Build from source
+Open `http://your-server:8100` in your browser. The frontend (Vue.js + nginx) proxies API requests to the backend collector internally — **only port 8100 is exposed**.
+
+### Standalone (without Docker)
+
+```bash
 go build -o collector ./cmd/collector
 ./collector
 ```
 
-The monitor listens on **port 3001** by default. Open `http://your-server:3001` in your browser.
+When running without Docker, the collector serves the API on port 3001 directly.
 
 ### Asterisk Prerequisites
 
@@ -155,10 +160,49 @@ All settings via environment variables (or `.env` file). See [.env.example](.env
 | `RTP_POLL_INTERVAL` | `30s` | RTP stats polling interval via ARI |
 | `ENDPOINT_REFRESH_INTERVAL` | `5m` | Endpoint re-sync interval via AMI |
 | `SECURITY_WHITELIST_IPS` | *(empty)* | Comma-separated IPs to ignore in security events |
+| `VITE_BASE` | `/` | Frontend base path (build-time, for reverse proxy setups) |
+
+## Reverse Proxy (Traefik, nginx, etc.)
+
+To serve the dashboard under a subpath (e.g. `https://pbx.example.com/monitor`), set the `VITE_BASE` variable before building:
+
+```bash
+# In your .env file
+VITE_BASE=/monitor/
+
+# Rebuild the frontend with the new base path
+docker compose up -d --build
+```
+
+The frontend assets and API calls will automatically use the configured base path. Your reverse proxy should **strip the prefix** before forwarding to the container on port 80.
+
+**Traefik example** (add to frontend service labels):
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.monitor.rule=Host(`pbx.example.com`) && PathPrefix(`/monitor`)"
+  - "traefik.http.routers.monitor.entrypoints=https"
+  - "traefik.http.routers.monitor.tls=true"
+  - "traefik.http.middlewares.monitor-strip.stripprefix.prefixes=/monitor"
+  - "traefik.http.routers.monitor.middlewares=monitor-strip"
+  - "traefik.http.services.monitor.loadbalancer.server.port=80"
+```
+
+**nginx example:**
+
+```nginx
+location /monitor/ {
+    proxy_pass http://localhost:8100/;
+    proxy_http_version 1.1;
+    proxy_set_header Connection '';
+    proxy_buffering off;
+}
+```
 
 ## REST API
 
-Base URL: `http://localhost:3001`
+Base URL: `http://localhost:8100` (via Docker) or `http://localhost:3001` (standalone)
 
 ### Real-time endpoints
 
@@ -212,8 +256,12 @@ Connect to `/api/v1/events` for real-time updates:
 │   ├── config/                    # Environment-based configuration
 │   ├── db/                        # SQLite persistence layer
 │   └── store/                     # In-memory state (channels, endpoints)
-├── frontend/index.html            # Embedded Vue 3 dashboard
-├── Dockerfile                     # Multi-stage build (~15MB)
+├── frontend/                      # Vue 3 SPA dashboard
+│   ├── src/                       # Vue components + composables
+│   ├── Dockerfile                 # Node build + nginx (~25MB)
+│   ├── nginx.conf                 # Reverse proxy to collector
+│   └── vite.config.js             # Configurable base path
+├── Dockerfile                     # Go multi-stage build (~15MB)
 ├── docker-compose.yml             # Production-ready deployment
 └── .env.example                   # Configuration template
 ```

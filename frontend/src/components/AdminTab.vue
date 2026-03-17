@@ -138,7 +138,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 
-const API = '/api/v1/admin'
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
+const API = BASE + '/api/v1/admin'
 
 const loading = ref(true)
 const saving = ref(false)

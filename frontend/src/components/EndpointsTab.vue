@@ -47,6 +47,8 @@
 import { ref, computed } from 'vue'
 import { endpoints, formatDateTime } from '../composables/useStore'
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
+
 const endpointSearch = ref('')
 const endpointFilter = ref('all')
 const epHistoryOpen = ref('')
@@ -83,7 +85,7 @@ async function toggleEpHistory(name) {
   }
   epHistoryOpen.value = name
   try {
-    const res = await fetch('/api/v1/history/endpoints?endpoint=' + encodeURIComponent(name) + '&per_page=50')
+    const res = await fetch(BASE + '/api/v1/history/endpoints?endpoint=' + encodeURIComponent(name) + '&per_page=50')
     if (res.ok) {
       const data = await res.json()
       epHistoryData.value = data.items || []
