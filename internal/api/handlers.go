@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/9level/9level-monitor/internal/alerts"
 	"github.com/9level/9level-monitor/internal/db"
 	"github.com/9level/9level-monitor/internal/store"
 )
@@ -17,16 +18,18 @@ type Handler struct {
 	db           *db.DB
 	amiConnected func() bool
 	ariHealthy   func() bool
+	alertEngine  *alerts.Engine
 }
 
 func NewHandler(s *store.Store, b *Broker, database *db.DB,
-	amiConn func() bool, ariHealth func() bool) *Handler {
+	amiConn func() bool, ariHealth func() bool, alertEng *alerts.Engine) *Handler {
 	return &Handler{
 		store:        s,
 		broker:       b,
 		db:           database,
 		amiConnected: amiConn,
 		ariHealthy:   ariHealth,
+		alertEngine:  alertEng,
 	}
 }
 
@@ -50,6 +53,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/history/security", h.getHistorySecurity)
 	mux.HandleFunc("GET /api/v1/history/endpoints", h.getHistoryEndpoints)
 	mux.HandleFunc("GET /api/v1/db/size", h.getDBSize)
+
+	// Admin routes
+	mux.HandleFunc("GET /api/v1/admin/settings", h.getSettings)
+	mux.HandleFunc("PUT /api/v1/admin/settings", h.putSettings)
+	mux.HandleFunc("POST /api/v1/admin/test/telegram", h.testTelegram)
+	mux.HandleFunc("POST /api/v1/admin/test/webhook", h.testWebhook)
 
 	// Serve frontend
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -380,4 +389,63 @@ func boolToStatus(b bool) string {
 		return "connected"
 	}
 	return "disconnected"
+}
+
+// --- Admin API ---
+
+func (h *Handler) getSettings(w http.ResponseWriter, r *http.Request) {
+	if h.db == nil {
+		http.Error(w, `{"error":"database not available"}`, http.StatusServiceUnavailable)
+		return
+	}
+	settings, err := h.db.GetAllSettings()
+	if err != nil {
+		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+	h.writeJSON(w, settings)
+}
+
+func (h *Handler) putSettings(w http.ResponseWriter, r *http.Request) {
+	if h.db == nil {
+		http.Error(w, `{"error":"database not available"}`, http.StatusServiceUnavailable)
+		return
+	}
+	var settings map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return
+	}
+	if err := h.db.SetSettings(settings); err != nil {
+		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+	if h.alertEngine != nil {
+		h.alertEngine.Reload()
+	}
+	h.writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (h *Handler) testTelegram(w http.ResponseWriter, r *http.Request) {
+	if h.alertEngine == nil {
+		http.Error(w, `{"error":"alert engine not available"}`, http.StatusServiceUnavailable)
+		return
+	}
+	if err := h.alertEngine.SendTestTelegram(); err != nil {
+		h.writeJSON(w, map[string]string{"error": err.Error()})
+		return
+	}
+	h.writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (h *Handler) testWebhook(w http.ResponseWriter, r *http.Request) {
+	if h.alertEngine == nil {
+		http.Error(w, `{"error":"alert engine not available"}`, http.StatusServiceUnavailable)
+		return
+	}
+	if err := h.alertEngine.SendTestWebhook(); err != nil {
+		h.writeJSON(w, map[string]string{"error": err.Error()})
+		return
+	}
+	h.writeJSON(w, map[string]bool{"ok": true})
 }

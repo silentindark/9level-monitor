@@ -3,3 +3,5 @@ data/
 /collector
 *.db
 TODO.md
+frontend/node_modules/
+frontend/dist/

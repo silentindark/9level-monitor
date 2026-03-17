@@ -128,6 +128,12 @@ CREATE TABLE IF NOT EXISTS endpoint_changes (
   timestamp DATETIME NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_cq_ended ON call_quality(ended_at);
 CREATE INDEX IF NOT EXISTS idx_se_timestamp ON security_events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_ec_timestamp ON endpoint_changes(timestamp);
@@ -484,4 +490,67 @@ func (d *DB) QueryEndpointChanges(from, to time.Time, endpoint string, page, per
 	}
 
 	return &Page[EndpointChangeRow]{Items: items, Total: total, Page: page, Pages: pages}, nil
+}
+
+// GetSetting returns the value for a settings key, or empty string if not found
+func (d *DB) GetSetting(key string) (string, error) {
+	var value string
+	err := d.conn.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+// SetSetting upserts a single settings key-value pair
+func (d *DB) SetSetting(key, value string) error {
+	_, err := d.conn.Exec(
+		"INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+		key, value, fmtTime(time.Now()))
+	return err
+}
+
+// GetAllSettings returns all settings as a key-value map
+func (d *DB) GetAllSettings() (map[string]string, error) {
+	rows, err := d.conn.Query("SELECT key, value FROM settings")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	settings := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		settings[k] = v
+	}
+	return settings, nil
+}
+
+// SetSettings upserts multiple settings in a single transaction
+func (d *DB) SetSettings(settings map[string]string) error {
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	now := fmtTime(time.Now())
+	for k, v := range settings {
+		if _, err := stmt.Exec(k, v, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

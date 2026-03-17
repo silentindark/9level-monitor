@@ -3,7 +3,6 @@ services:
     build: .
     container_name: 9level-collector
     restart: unless-stopped
-    network_mode: host
     env_file: .env
     environment:
       - TZ=America/Sao_Paulo
@@ -14,3 +13,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    networks:
+      - internal
+
+  frontend:
+    build: ./frontend
+    container_name: 9level-frontend
+    restart: unless-stopped
+    ports:
+      - "8100:80"
+    depends_on:
+      collector:
+        condition: service_healthy
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

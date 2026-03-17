@@ -185,3 +185,16 @@ func (s *Store) PurgeSecurityEvents(maxAge time.Duration) int {
 
 	return purged
 }
+
+// GetSecurityCountByIP returns the number of security events for the given address
+func (s *Store) GetSecurityCountByIP(addr string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, ev := range s.SecurityEvents {
+		if ev.RemoteAddress == addr {
+			count++
+		}
+	}
+	return count
+}

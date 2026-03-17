@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/cors"
+	"github.com/9level/9level-monitor/internal/alerts"
 	"github.com/9level/9level-monitor/internal/ami"
 	"github.com/9level/9level-monitor/internal/api"
 	"github.com/9level/9level-monitor/internal/ari"
@@ -34,14 +35,17 @@ func main() {
 	ariClient := ari.NewClient(cfg.ARIBaseURL, cfg.ARIUser, cfg.ARIPass)
 	broker := api.NewBroker()
 
+	// Initialize alert engine
+	alertEngine := alerts.New(database)
+
 	// API
-	handler := api.NewHandler(st, broker, database, amiClient.Connected, ariClient.Healthy)
+	handler := api.NewHandler(st, broker, database, amiClient.Connected, ariClient.Healthy, alertEngine)
 	mux := http.NewServeMux()
 	handler.Register(mux)
 
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
-		AllowedMethods: []string{"GET"},
+		AllowedMethods: []string{"GET", "PUT", "POST"},
 	})
 
 	srv := &http.Server{
@@ -56,7 +60,7 @@ func main() {
 
 	// Start collector (processes AMI events + ARI polling)
 	coll := collector.New(st, amiClient, ariClient, broker,
-		cfg.RTPPollInterval, cfg.EndpointRefreshInterval, cfg.SecurityWhitelistIPs, database)
+		cfg.RTPPollInterval, cfg.EndpointRefreshInterval, cfg.SecurityWhitelistIPs, database, alertEngine)
 
 	go func() {
 		// Wait for AMI connection before bootstrap

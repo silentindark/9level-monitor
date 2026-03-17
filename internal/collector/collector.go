@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/9level/9level-monitor/internal/alerts"
 	"github.com/9level/9level-monitor/internal/ami"
 	"github.com/9level/9level-monitor/internal/api"
 	"github.com/9level/9level-monitor/internal/ari"
@@ -18,11 +19,12 @@ import (
 
 // Collector processes AMI events and updates the store
 type Collector struct {
-	store     *store.Store
-	amiClient *ami.Client
-	ariClient *ari.Client
-	broker    *api.Broker
-	db        *db.DB
+	store       *store.Store
+	amiClient   *ami.Client
+	ariClient   *ari.Client
+	broker      *api.Broker
+	db          *db.DB
+	alertEngine *alerts.Engine
 
 	rtpPollInterval         time.Duration
 	endpointRefreshInterval time.Duration
@@ -30,7 +32,7 @@ type Collector struct {
 }
 
 func New(st *store.Store, amiC *ami.Client, ariC *ari.Client, broker *api.Broker,
-	rtpInterval, epRefresh time.Duration, whitelistIPs []string, database *db.DB) *Collector {
+	rtpInterval, epRefresh time.Duration, whitelistIPs []string, database *db.DB, alertEng *alerts.Engine) *Collector {
 	wl := make(map[string]bool)
 	for _, ip := range whitelistIPs {
 		wl[ip] = true
@@ -41,6 +43,7 @@ func New(st *store.Store, amiC *ami.Client, ariC *ari.Client, broker *api.Broker
 		ariClient:               ariC,
 		broker:                  broker,
 		db:                      database,
+		alertEngine:             alertEng,
 		rtpPollInterval:         rtpInterval,
 		endpointRefreshInterval: epRefresh,
 		securityWhitelistIPs:    wl,
@@ -194,6 +197,10 @@ func (c *Collector) onHangup(ev ami.Event) {
 			} else {
 				log.Printf("collector: db saved call %s duration=%ds mos=%.2f/%.2f", ch.Name, ch.Duration, q.RxMES, q.TxMES)
 			}
+		}
+
+		if c.alertEngine != nil && ch.Quality != nil {
+			c.alertEngine.CheckMOS(ch.Name, ch.Quality.RxMES, ch.Quality.TxMES)
 		}
 	}
 	log.Printf("collector: hangup %s", name)
@@ -412,6 +419,10 @@ func (c *Collector) persistEndpointChange(endpoint, oldState, newState string) {
 			log.Printf("collector: db insert endpoint_change error: %v", err)
 		}
 	}
+
+	if c.alertEngine != nil {
+		c.alertEngine.CheckEndpointDown(endpoint, oldState, newState)
+	}
 }
 
 func (c *Collector) onSecurityEvent(ev ami.Event) {
@@ -442,6 +453,10 @@ func (c *Collector) onSecurityEvent(ev ami.Event) {
 		if err := c.db.InsertSecurityEvent(secEv.EventType, secEv.AccountID, secEv.RemoteAddress, secEv.Service, secEv.Timestamp); err != nil {
 			log.Printf("collector: db insert security_event error: %v", err)
 		}
+	}
+
+	if c.alertEngine != nil {
+		c.alertEngine.CheckSecurityFlood(secEv.RemoteAddress, c.store.GetSecurityCountByIP(secEv.RemoteAddress))
 	}
 
 	log.Printf("collector: SECURITY %s from %s (account: %s)",
