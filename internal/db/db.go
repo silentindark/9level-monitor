@@ -321,11 +321,23 @@ func (d *DB) QueryCallStats(from, to time.Time) (*CallStats, error) {
 	return &stats, nil
 }
 
+// localOffsetSQL returns a SQLite modifier string like '+3 hours' or '-5 hours'
+// based on the local timezone offset at the given time.
+func localOffsetSQL(t time.Time) string {
+	_, offset := t.Zone()
+	hours := offset / 3600
+	if hours >= 0 {
+		return fmt.Sprintf("+%d hours", hours)
+	}
+	return fmt.Sprintf("%d hours", hours)
+}
+
 // QueryCallsHourly returns per-hour aggregated call stats for a time range
 func (d *DB) QueryCallsHourly(from, to time.Time) ([]HourlyStat, error) {
+	tzOffset := localOffsetSQL(from)
 	rows, err := d.conn.Query(`
 		SELECT
-			CAST(strftime('%H', ended_at) AS INTEGER) AS hour,
+			CAST(strftime('%H', ended_at, '`+tzOffset+`') AS INTEGER) AS hour,
 			COUNT(*) AS total_calls,
 			COALESCE(AVG((rxmes + txmes) / 2.0), 0) AS avg_mos,
 			COALESCE(SUM(CASE WHEN (rxmes + txmes) / 2.0 < 3.0 THEN 1 ELSE 0 END), 0) AS bad_calls
@@ -360,9 +372,10 @@ func (d *DB) QueryCallsHourly(from, to time.Time) ([]HourlyStat, error) {
 
 // QueryCallsDaily returns per-day aggregated call stats for a time range
 func (d *DB) QueryCallsDaily(from, to time.Time) ([]DailyStat, error) {
+	tzOffset := localOffsetSQL(from)
 	rows, err := d.conn.Query(`
 		SELECT
-			date(ended_at) AS day,
+			date(ended_at, '`+tzOffset+`') AS day,
 			COUNT(*) AS total_calls,
 			COALESCE(AVG((rxmes + txmes) / 2.0), 0) AS avg_mos,
 			COALESCE(SUM(CASE WHEN (rxmes + txmes) / 2.0 < 3.0 THEN 1 ELSE 0 END), 0) AS bad_calls

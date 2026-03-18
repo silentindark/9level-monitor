@@ -203,6 +203,13 @@ func (h *Handler) getHealth(w http.ResponseWriter, r *http.Request) {
 
 // --- History API (SQLite) ---
 
+func parseLocalDate(s string) (time.Time, bool) {
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Now().Location()); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
 func (h *Handler) parseTimeRange(r *http.Request) (time.Time, time.Time) {
 	q := r.URL.Query()
 	now := time.Now()
@@ -212,14 +219,14 @@ func (h *Handler) parseTimeRange(r *http.Request) (time.Time, time.Time) {
 	if v := q.Get("from"); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			from = t
-		} else if t, err := time.Parse("2006-01-02", v); err == nil {
+		} else if t, ok := parseLocalDate(v); ok {
 			from = t
 		}
 	}
 	if v := q.Get("to"); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			to = t
-		} else if t, err := time.Parse("2006-01-02", v); err == nil {
+		} else if t, ok := parseLocalDate(v); ok {
 			to = t.AddDate(0, 0, 1) // end of day
 		}
 	}
@@ -273,19 +280,19 @@ func (h *Handler) getHistoryCallsHourly(w http.ResponseWriter, r *http.Request) 
 
 	// Support legacy "date" param
 	if v := q.Get("date"); v != "" {
-		if t, err := time.Parse("2006-01-02", v); err == nil {
+		if t, ok := parseLocalDate(v); ok {
 			from = t
 			to = t.AddDate(0, 0, 1)
 		}
 	}
 	// from/to override date
 	if v := q.Get("from"); v != "" {
-		if t, err := time.Parse("2006-01-02", v); err == nil {
+		if t, ok := parseLocalDate(v); ok {
 			from = t
 		}
 	}
 	if v := q.Get("to"); v != "" {
-		if t, err := time.Parse("2006-01-02", v); err == nil {
+		if t, ok := parseLocalDate(v); ok {
 			to = t.AddDate(0, 0, 1)
 		}
 	}
